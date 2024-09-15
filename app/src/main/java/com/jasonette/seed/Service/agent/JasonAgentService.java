@@ -3,7 +3,7 @@ package com.jasonette.seed.Service.agent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
-import android.support.v4.content.LocalBroadcastManager;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import android.util.Log;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -377,10 +377,12 @@ public class JasonAgentService {
                         try {
                             String injection_script = JasonHelper.read_file("agent", context);
                             String interface_script = "$agent.interface.postMessage = function(r) { JASON.postMessage(JSON.stringify(r)); };";
+                            String injection_custom_script = JasonHelper.read_file("file/custom.js", context);
+
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
-                                view.evaluateJavascript(injection_script + " " + interface_script, null);
+                                view.evaluateJavascript(injection_script + " " + interface_script + " " + injection_custom_script, null);
                             } else {
-                                view.loadUrl("javascript:" + injection_script + " " + interface_script);
+                                view.loadUrl("javascript:" + injection_script + " " + interface_script + " " + injection_custom_script);
                             }
 
                             if (pending.has(id)) {
@@ -503,7 +505,9 @@ public class JasonAgentService {
                             view.setTag(payload);
                         } catch (Exception e) {
                             Log.d("Warning", e.getStackTrace()[0].getMethodName() + " : " + e.toString());
-                            notifier.notify();
+                            synchronized (notifier) {
+                                notifier.notify();
+                            }
                         }
                         return false;
                     }
@@ -525,6 +529,33 @@ public class JasonAgentService {
                 settings.setAllowFileAccess(true);
                 settings.setAppCacheEnabled(true);
                 settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                
+                // Check for special options in background webview
+                /* Example JSON
+                "body": {
+                    "background": {
+                        "type": "html",
+                        "url": "http://google.com",
+                        "options": {
+                            "useragent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.63 Safari/537.36"
+                        },
+                        "style": {
+                            "background": "#ffffff",
+                            "progress" : "rgba(0,0,0,0)"
+                        },
+                        "action": {
+                            "type": "$default"
+                        }
+                    }
+                }
+                */
+                if (options.has("options")) {
+                    // Allows custom user agent for the webview
+                    if (options.getJSONObject("options").has("useragent")) {
+                        Log.d("Debug", "Using custom user agent: " + options.getJSONObject("options").getString("useragent"));
+                        settings.setUserAgentString(options.getJSONObject("options").getString("useragent"));
+                    }
+                }
 
                 // 2.2. Create and Attach JavaScript Interface
                 JasonAgentInterface agentInterface = new JasonAgentInterface(agent, context);
@@ -576,7 +607,9 @@ public class JasonAgentService {
                         agent.loadUrl("file:///android_asset/file/" + url.substring(7));
                         // 2. remote url
                     } else {
-                        agent.loadUrl(url);
+                        if (context.savedInstance) {
+                            agent.loadUrl(url);
+                        }
                     }
                 }
             }
